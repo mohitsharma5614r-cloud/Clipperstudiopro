@@ -1,0 +1,20 @@
+{
+  "clip_id": "clip_2",
+  "clip_index": 2,
+  "title": "Clip 2",
+  "reason": "Climax",
+  "score": 85.0,
+  "start_sec": 10.0,
+  "end_sec": 18.0,
+  "duration": 8.0,
+  "aspect_ratio": "9:16",
+  "face_detected": true,
+  "is_top_viral": false,
+  "breakdown": {
+    "heatmap": 60,
+    "audio": 60,
+    "visual": 60,
+    "pacing": 60
+  },
+  "video_file": "clip_2.mp4"
+}

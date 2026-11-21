@@ -1,0 +1,15 @@
+{
+  "job_id": "257dd31e7afa",
+  "url_or_path": "tests/sample_video.mp4",
+  "title": "sample_video",
+  "channel": "Local File",
+  "duration": 30.0,
+  "width": 640,
+  "height": 360,
+  "fps": 25.0,
+  "chapters": [],
+  "heatmap": null,
+  "has_heatmap": false,
+  "source_file": "workspace/257dd31e7afa/source.mp4",
+  "audio_file": "workspace/257dd31e7afa/audio_16k.wav"
+}

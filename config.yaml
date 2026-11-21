@@ -1,0 +1,65 @@
+# AI Clipping Tool Configuration
+
+# Moment Detection Signal Weights (Must sum to 1.0)
+# If a video has no heatmap, w_heatmap is redistributed proportionally to audio, visual, and pacing.
+weights:
+  heatmap: 0.35
+  audio: 0.30
+  visual: 0.20
+  pacing: 0.15
+
+# Virality Optimization Engine
+# Prioritizes clips with strong 3-second hooks, global replay peaks, and dynamic punchline/climax reactions.
+virality:
+  enable_hook_boost: true        # Boosts clips with energetic openings in the first 3s
+  enable_global_peak_boost: true # Mathematically guarantees the #1 most-watched point is Clip 1
+  enable_climax_burst: true      # Boosts reaction bursts (punchlines, laughter, screaming)
+
+# Candidate Clip Duration Constraints (in seconds)
+clips:
+  default_count: 5
+  min_count: 1
+  max_count: 15
+  min_length: 20.0
+  max_length: 60.0
+  window_step: 3.0           # Sliding window step size in seconds
+  boundary_snap_window: 2.5  # Max distance to search for a silence or scene boundary
+  boundary_padding: 0.3      # Seconds of padding added to start and end
+  nms_iou_threshold: 0.25    # Overlap suppression threshold (Intersection over Union)
+
+# Audio Analysis
+audio:
+  sample_rate: 16000
+  frame_length_sec: 1.0
+  silence_thresh_db: -32.0   # Decibel threshold for detecting silence
+  silence_min_dur_sec: 0.5   # Minimum duration to count as silence
+  target_lufs: -14.0         # Standard loudness for Shorts/TikTok/Reels
+  target_lra: 11.0
+  target_tp: -1.5
+
+# Visual Analysis
+visual:
+  sample_fps: 2.0            # Sample rate for visual motion analysis
+  scene_cut_threshold: 30.0  # Threshold for frame difference to detect scene cut
+  motion_blur_smooth_window: 5
+
+# Video Rendering & Reframing
+render:
+  default_aspect: "9:16"     # Options: "9:16", "16:9", "1:1"
+  video_codec: "libx264"
+  audio_codec: "aac"
+  crf: 18                    # Visually lossless high-definition output
+  preset: "veryfast"         # Ultra-fast multithreaded rendering
+  target_resolution_9_16: "1080x1920"
+  target_resolution_16_9: "1920x1080"
+  fade_duration: 0.3         # Optional audio & video fade in/out duration in seconds
+  enable_fade: true
+  face_tracking:
+    smooth_factor: 0.15      # Exponential smoothing factor for camera crop movement (0=frozen, 1=instant)
+    fallback_mode: "blur"    # "blur" (blurred background) or "center"
+
+# Workspace & Storage
+storage:
+  workspace_dir: "./workspace"
+  auto_cleanup_hours: 24     # Automatically remove jobs older than X hours (0 to disable)
+

@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  ai-clipper:
+    build: .
+    container_name: ai_clipper_service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./workspace:/app/workspace
+      - ./output:/app/output
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+

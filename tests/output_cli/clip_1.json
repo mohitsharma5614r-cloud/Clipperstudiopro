@@ -1,0 +1,19 @@
+{
+  "clip_id": "clip_1",
+  "clip_index": 1,
+  "title": "Full HD Test",
+  "reason": "High Quality Test",
+  "score": 85.0,
+  "start_sec": 10.0,
+  "end_sec": 15.0,
+  "duration": 5.0,
+  "aspect_ratio": "9:16",
+  "face_detected": true,
+  "breakdown": {
+    "heatmap": 0,
+    "audio": 80,
+    "visual": 80,
+    "pacing": 80
+  },
+  "video_file": "clip_1.mp4"
+}

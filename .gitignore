@@ -1,0 +1,31 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Workspace & Generated Media
+workspace/
+*.mp4
+*.wav
+*.mkv
+*.webm
+*.mov
+*.zip
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment Variables
+.env
+!.env.example
+
+# OS Metadata
+.DS_Store
+Thumbs.db

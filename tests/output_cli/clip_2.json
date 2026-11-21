@@ -1,0 +1,19 @@
+{
+  "clip_id": "clip_2",
+  "clip_index": 2,
+  "title": "sample_video - Clip 2",
+  "reason": "Dynamic audio bursts + Continuous tight pacing",
+  "score": 39.3,
+  "start_sec": 8.7,
+  "end_sec": 18.3,
+  "duration": 9.6,
+  "aspect_ratio": "9:16",
+  "face_detected": true,
+  "breakdown": {
+    "heatmap": 0.0,
+    "audio": 42.0,
+    "visual": 3.3,
+    "pacing": 81.8
+  },
+  "video_file": "clip_2.mp4"
+}
