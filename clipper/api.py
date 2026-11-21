@@ -15,6 +15,7 @@ import asyncio
 import io
 import json
 import os
+import threading
 import time
 import uuid
 import zipfile
@@ -32,7 +33,7 @@ from clipper.analyze import detect_moments
 from clipper.download import ingest_video
 from clipper.render import render_all_clips
 from clipper.signals import compute_video_signals
-from clipper.utils import ensure_dir, get_config, logger
+from clipper.utils import ensure_dir, get_config, get_workspace_dir, logger
 
 app = FastAPI(
     title="AI Clipping Tool API",
@@ -122,14 +123,11 @@ def process_job_sync(job_id: str):
     if not job:
         return
 
-    cfg = get_config()
-    workspace_dir = Path(cfg.get("storage", {}).get("workspace_dir", "./workspace"))
-    job_dir = ensure_dir(workspace_dir / job_id)
-    clips_dir = ensure_dir(job_dir / "clips")
-
     try:
-        # Stage 1: Ingestion
-        job.update("downloading", 5, "Preparing download & checking cache...")
+        job.update("downloading", 5, "Initializing workspace & checking cache...")
+        workspace_dir = get_workspace_dir()
+        job_dir = ensure_dir(workspace_dir / job_id)
+        clips_dir = ensure_dir(job_dir / "clips")
         logger.info("[%s] Starting ingestion for: %s", job_id, job.request.url)
 
         def on_download_progress(pct: int, msg: str):
@@ -219,17 +217,19 @@ async def create_job(req: JobRequest, background_tasks: BackgroundTasks):
             existing_job.request.url.strip().lower() == norm_url
             and existing_job.request.num_clips == req.num_clips
             and existing_job.request.aspect_ratio == req.aspect_ratio
-            and existing_job.status in ("queued", "downloading", "analyzing", "rendering", "completed")
         ):
-            logger.info("Reusing matching job %s (status: %s) for %s", existing_id, existing_job.status, req.url)
-            return {"job_id": existing_id, "status": existing_job.status, "message": f"Matching job {existing_job.status}"}
+            # If already completed or actively in progress, reuse
+            if existing_job.status in ("completed", "downloading", "analyzing", "rendering"):
+                logger.info("Reusing active job %s (status: %s) for %s", existing_id, existing_job.status, req.url)
+                return {"job_id": existing_id, "status": existing_job.status, "message": f"Matching job {existing_job.status}"}
 
     job_id = uuid.uuid4().hex[:12]
     job_state = JobState(job_id=job_id, request=req)
     JOBS[job_id] = job_state
 
-    # Execute in background thread
-    background_tasks.add_task(process_job_sync, job_id)
+    # Execute in dedicated daemon thread immediately (robust against event loop or serverless queue pauses)
+    worker_thread = threading.Thread(target=process_job_sync, args=(job_id,), daemon=True)
+    worker_thread.start()
     return {"job_id": job_id, "status": "queued", "message": "Job created and queued"}
 
 
@@ -263,8 +263,7 @@ async def get_job_clips(job_id: str):
 @app.get("/jobs/{job_id}/clips/{clip_id}/stream")
 async def stream_clip(job_id: str, clip_id: str, request: Request):
     """Stream clip video with HTTP 206 partial content support for HTML5 video player."""
-    cfg = get_config()
-    workspace_dir = Path(cfg.get("storage", {}).get("workspace_dir", "./workspace"))
+    workspace_dir = get_workspace_dir()
     video_path = workspace_dir / job_id / "clips" / f"{clip_id}.mp4"
 
     if not video_path.is_file():
@@ -313,8 +312,7 @@ async def stream_clip(job_id: str, clip_id: str, request: Request):
 @app.get("/jobs/{job_id}/clips/{clip_id}/download")
 async def download_clip(job_id: str, clip_id: str):
     """Download a single clip as an MP4 attachment."""
-    cfg = get_config()
-    workspace_dir = Path(cfg.get("storage", {}).get("workspace_dir", "./workspace"))
+    workspace_dir = get_workspace_dir()
     video_path = workspace_dir / job_id / "clips" / f"{clip_id}.mp4"
 
     if not video_path.is_file():
@@ -330,8 +328,7 @@ async def download_clip(job_id: str, clip_id: str):
 @app.get("/jobs/{job_id}/download-all")
 async def download_all_clips(job_id: str):
     """Download all rendered clips and metadata as a single ZIP file."""
-    cfg = get_config()
-    workspace_dir = Path(cfg.get("storage", {}).get("workspace_dir", "./workspace"))
+    workspace_dir = get_workspace_dir()
     clips_dir = workspace_dir / job_id / "clips"
 
     if not clips_dir.is_dir():

@@ -109,10 +109,44 @@ def format_timestamp(seconds: float) -> str:
     return f"{mins:02d}:{secs:02d}"
 
 
+def get_workspace_dir(custom_path: str | Path | None = None) -> Path:
+    """Get a writable workspace directory with automatic fallback to /tmp for cloud/container/lambda."""
+    if custom_path:
+        candidates = [Path(custom_path)]
+    else:
+        cfg = get_config()
+        cfg_path = cfg.get("storage", {}).get("workspace_dir", "./workspace")
+        candidates = [
+            Path(cfg_path),
+            Path("/tmp/clipper_workspace"),
+            Path.home() / ".clipper_workspace",
+        ]
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test_file = candidate / f".write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+            return candidate
+        except (OSError, PermissionError):
+            continue
+
+    fallback = Path("/tmp/clipper_workspace")
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
 def ensure_dir(path: str | Path) -> Path:
-    """Ensure directory exists and return Path object."""
+    """Ensure directory exists and return Path object with write safety."""
     p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError):
+        # Fallback to /tmp if current path is in a read-only filesystem
+        tmp_fallback = Path("/tmp/clipper_workspace") / p.name
+        tmp_fallback.mkdir(parents=True, exist_ok=True)
+        return tmp_fallback
     return p
 
 
