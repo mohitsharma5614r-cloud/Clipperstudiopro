@@ -204,7 +204,8 @@ def ingest_video(
         # Real-time progress reporting hook for yt-dlp
         def make_progress_hook(cb):
             def hook(d):
-                if d.get("status") == "downloading" and cb:
+                status = d.get("status")
+                if status == "downloading" and cb:
                     total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                     downloaded = d.get("downloaded_bytes", 0)
                     speed = d.get("speed") or 0
@@ -215,30 +216,40 @@ def ingest_video(
                     mb_spd = (speed or 0) / (1024 * 1024)
                     eta_m = int((eta or 0) // 60)
                     eta_s = int((eta or 0) % 60)
-                    overall = 5 + int(pct * 0.25)
+                    overall = 5 + int(pct * 0.23)
                     tot_str = f"/{mb_tot:.1f}" if mb_tot > 0 else ""
                     cb(overall, f"Downloading: {pct}% ({mb_down:.1f}{tot_str} MB at {mb_spd:.1f} MB/s, ETA {eta_m:02d}:{eta_s:02d})")
+                elif status == "finished" and cb:
+                    cb(28, "Download complete! Extracting audio & preparing analysis...")
             return hook
 
+        ffmpeg_bin = None
+        try:
+            ffmpeg_bin = get_ffmpeg_path()
+        except Exception:
+            pass
+
         base_ydl_opts = {
-            "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            "format": "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best",
             "outtmpl": out_template,
             "merge_output_format": "mp4",
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
-            "socket_timeout": 30,
-            "concurrent_fragment_downloads": 4,
-            "http_chunk_size": 10485760,
+            "socket_timeout": 20,
+            "retries": 3,
         }
+        if ffmpeg_bin:
+            base_ydl_opts["ffmpeg_location"] = ffmpeg_bin
+
         if progress_callback:
             base_ydl_opts["progress_hooks"] = [make_progress_hook(progress_callback)]
 
+        # Priority strategies: 'android' client bypasses YouTube SABR 403 throttling instantly
         client_strategies = [
-            ["mweb", "tv", "android", "ios"],
-            ["android", "ios"],
-            ["ios"],
-            None,  # default clients
+            ["android"],
+            ["android", "web"],
+            None,
         ]
 
         info = None
