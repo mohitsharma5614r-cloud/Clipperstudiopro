@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import json
 import math
+import wave
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-from scipy.io import wavfile
-from scipy.signal import stft
 
 from clipper.download import VideoMetadata
 from clipper.utils import get_config, logger
@@ -88,6 +87,30 @@ def extract_heatmap_signal(
         return signal, False
 
 
+def load_wav_file(wav_path: Path | str) -> tuple[int, np.ndarray]:
+    """Read WAV file into float32 mono array in [-1.0, 1.0] using Python standard library wave module."""
+    with wave.open(str(wav_path), "rb") as wf:
+        sr = wf.getframerate()
+        n_channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        n_frames = wf.getnframes()
+        raw_bytes = wf.readframes(n_frames)
+
+    if sampwidth == 2:
+        samples = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    elif sampwidth == 1:
+        samples = (np.frombuffer(raw_bytes, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+    elif sampwidth == 4:
+        samples = np.frombuffer(raw_bytes, dtype=np.int32).astype(np.float32) / 2147483648.0
+    else:
+        samples = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+    if n_channels > 1:
+        samples = samples.reshape(-1, n_channels).mean(axis=1)
+
+    return sr, samples
+
+
 def extract_audio_signals(
     wav_path: Path | str,
     total_seconds: int,
@@ -95,18 +118,7 @@ def extract_audio_signals(
     silence_min_dur: float = 0.5,
 ) -> tuple[np.ndarray, np.ndarray, List[List[float]]]:
     """Compute audio energy signal, pacing signal, and detect silence intervals."""
-    sr, data = wavfile.read(str(wav_path))
-
-    # Convert to float mono in range [-1.0, 1.0]
-    if data.ndim > 1:
-        data = data.mean(axis=1)
-
-    if np.issubdtype(data.dtype, np.integer):
-        max_int = np.iinfo(data.dtype).max
-        samples = data.astype(np.float32) / float(max_int)
-    else:
-        samples = data.astype(np.float32)
-
+    sr, samples = load_wav_file(wav_path)
     total_samples = len(samples)
     samples_per_sec = sr
 
@@ -121,26 +133,18 @@ def extract_audio_signals(
         reshaped_sec = samples[:n_full_secs * samples_per_sec].reshape(n_full_secs, samples_per_sec)
         rms_per_sec[:n_full_secs] = np.sqrt(np.mean(reshaped_sec**2, axis=1))
 
-    # 2. Vectorized spectral flux for applause/laughter/cheering/bursts
-    # STFT frame length = 512. For long videos (>10 mins), use 2x downsampling for instant FFT
-    if total_seconds > 600:
-        stft_samples = samples[::2]
-        stft_sr = sr // 2
-        stft_noverlap = 0
-    else:
-        stft_samples = samples
-        stft_sr = sr
-        stft_noverlap = 256
+    # 2. Vectorized spectral flux for applause/laughter/cheering/bursts using pure NumPy FFT
+    step = 512
+    n_frames = len(samples) // step
+    if n_frames > 1:
+        chunks = samples[:n_frames * step].reshape(n_frames, step)
+        window = np.hanning(step)
+        windowed = chunks * window
+        mags = np.abs(np.fft.rfft(windowed, axis=1))
+        diff = np.diff(mags, axis=0)
+        frame_flux = np.sum(np.maximum(0.0, diff), axis=1)
 
-    nperseg = min(512, len(stft_samples))
-    if nperseg > 64:
-        _, _, Zxx = stft(stft_samples, fs=stft_sr, nperseg=nperseg, noverlap=stft_noverlap)
-        mag = np.abs(Zxx)
-        diff = np.diff(mag, axis=1)
-        pos_diff = np.maximum(0.0, diff)
-        frame_flux = np.sum(pos_diff, axis=0)
-
-        frames_per_sec = len(frame_flux) / max(1.0, len(stft_samples) / stft_sr)
+        frames_per_sec = len(frame_flux) / max(1.0, len(samples) / sr)
         for t in range(total_seconds):
             f_start = int(t * frames_per_sec)
             f_end = int(min(len(frame_flux), (t + 1) * frames_per_sec))
