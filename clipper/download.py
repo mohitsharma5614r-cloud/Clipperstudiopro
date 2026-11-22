@@ -307,8 +307,9 @@ def ingest_video(
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
-            "socket_timeout": 20,
-            "retries": 3,
+            "socket_timeout": 8,
+            "retries": 1,
+            "fragment_retries": 1,
         }
         if ffmpeg_bin:
             base_ydl_opts["ffmpeg_location"] = ffmpeg_bin
@@ -328,7 +329,7 @@ def ingest_video(
             base_ydl_opts["cookiefile"] = cookie_file
             logger.info("Using YouTube authentication cookies: %s", cookie_file)
 
-        # Configured or default client strategies
+        # Configured or default fast client strategies
         configured_strategies = cfg.get("youtube", {}).get("player_clients")
         if configured_strategies and isinstance(configured_strategies, list):
             client_strategies = configured_strategies
@@ -337,18 +338,10 @@ def ingest_video(
                 None,
                 ["web"],
                 ["android_vr"],
-                ["android_vr", "web"],
-                ["web_safari"],
             ]
         else:
             client_strategies = [
                 ["android_vr"],
-                ["android_vr", "web"],
-                ["web_safari"],
-                ["ios"],
-                ["mweb"],
-                ["android"],
-                ["android", "web"],
                 None,
             ]
 
@@ -363,16 +356,22 @@ def ingest_video(
         info = None
         last_error = None
 
+        if progress_callback:
+            progress_callback(8, "Connecting to YouTube stream server...")
+
         for use_browser_cookies, browser_name in cookie_modes:
             mode_ydl_opts = dict(base_ydl_opts)
             if use_browser_cookies and browser_name:
                 mode_ydl_opts["cookiesfrombrowser"] = (browser_name,)
                 logger.info("Attempting download with cookies from browser: %s", browser_name)
 
-            for clients in client_strategies:
+            for idx, clients in enumerate(client_strategies):
                 opts = dict(mode_ydl_opts)
                 if clients:
                     opts["extractor_args"] = {"youtube": {"player_client": clients}}
+                if progress_callback:
+                    client_desc = clients[0] if clients else "web"
+                    progress_callback(8 + idx * 3, f"Resolving streams via '{client_desc}' client...")
                 try:
                     with yt_dlp.YoutubeDL(opts) as ydl:
                         info = ydl.extract_info(url_or_path, download=True)

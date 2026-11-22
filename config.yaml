@@ -69,14 +69,10 @@ youtube:
   cookies_file: ""
   # Browser to extract YouTube cookies from automatically ("chrome", "firefox", "brave", "edge", "safari")
   cookies_from_browser: ""
-  # Fallback client strategies: android_vr bypasses SABR bot checks; other clients act as fallbacks
+  # Fast player client strategies
   player_clients:
     - ["android_vr"]
-    - ["android_vr", "web"]
-    - ["web_safari"]
-    - ["ios"]
-    - ["mweb"]
-    - ["android"]
-    - ["android", "web"]
+    - null
+
 
 
