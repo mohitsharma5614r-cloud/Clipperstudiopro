@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from clipper.analyze import detect_moments
-from clipper.download import ingest_video
+from clipper.download import get_youtube_cookies_options, ingest_video
 from clipper.render import render_all_clips
 from clipper.signals import compute_video_signals
 from clipper.utils import ensure_dir, get_config, get_workspace_dir, logger
@@ -70,6 +70,8 @@ class JobRequest(BaseModel):
     min_length: float = Field(20.0, ge=5.0, le=120.0, description="Minimum clip duration in seconds")
     max_length: float = Field(60.0, ge=10.0, le=180.0, description="Maximum clip duration in seconds")
     aspect_ratio: str = Field("9:16", description="Target aspect ratio: 9:16, 16:9, or 1:1")
+    cookies_file: Optional[str] = Field(None, description="Path to cookies.txt file")
+    cookies_browser: Optional[str] = Field(None, description="Browser to extract cookies from (e.g. chrome, firefox, brave)")
 
 
 class JobState:
@@ -138,6 +140,8 @@ def process_job_sync(job_id: str):
             job_id=job_id,
             workspace_dir=workspace_dir,
             progress_callback=on_download_progress,
+            cookies_file=job.request.cookies_file,
+            cookies_browser=job.request.cookies_browser,
         )
         job.video_title = ingestion.metadata.title
         job.duration = ingestion.metadata.duration
@@ -349,6 +353,71 @@ async def download_all_clips(job_id: str):
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=clips_{job_id}.zip"},
     )
+
+
+class CookieUploadRequest(BaseModel):
+    content: str = Field(..., description="Netscape format cookies text")
+
+
+@app.get("/cookies/status")
+async def get_cookies_status():
+    """Check YouTube authentication and cookies status."""
+    cfg = get_config()
+    workspace_dir = get_workspace_dir()
+    cookie_file, browser = get_youtube_cookies_options(cfg, workspace_dir)
+
+    has_cookies = bool(cookie_file or browser)
+    size = None
+    if cookie_file and Path(cookie_file).is_file():
+        size = Path(cookie_file).stat().st_size
+
+    return {
+        "has_cookies": has_cookies,
+        "cookie_file": cookie_file,
+        "browser": browser,
+        "file_size": size,
+        "message": (
+            f"Using cookie file: {Path(cookie_file).name} ({size} bytes)"
+            if cookie_file
+            else f"Using cookies from browser: {browser}"
+            if browser
+            else "No cookies configured (unauthenticated)"
+        ),
+    }
+
+
+@app.post("/cookies/upload")
+async def upload_cookies(req: CookieUploadRequest):
+    """Save pasted Netscape cookies text to cookies.txt."""
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Cookie content cannot be empty")
+
+    if "\t" not in content and "youtube.com" not in content and "google.com" not in content:
+        raise HTTPException(
+            status_code=400,
+            detail="Content does not appear to be a valid Netscape cookies format. Ensure you exported from 'Get cookies.txt LOCALLY'."
+        )
+
+    workspace_dir = get_workspace_dir()
+    cookie_path = workspace_dir / "cookies.txt"
+    with open(cookie_path, "w", encoding="utf-8") as f:
+        f.write(content + "\n")
+
+    try:
+        root_path = Path("cookies.txt")
+        with open(root_path, "w", encoding="utf-8") as f:
+            f.write(content + "\n")
+    except Exception:
+        pass
+
+    logger.info("Successfully updated YouTube cookies (%d bytes)", len(content))
+    return {
+        "success": True,
+        "message": "Cookies saved successfully! YouTube downloads will now use this authentication.",
+        "path": str(cookie_path),
+        "size": len(content),
+    }
 
 
 @app.get("/health")

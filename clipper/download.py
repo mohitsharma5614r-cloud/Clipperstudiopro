@@ -121,16 +121,87 @@ def find_cached_video(
     return None
 
 
+def get_youtube_cookies_options(
+    cfg: Optional[Dict[str, Any]] = None,
+    workspace_dir: Optional[Path] = None,
+    custom_cookies_file: Optional[str] = None,
+    custom_cookies_browser: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Determine cookie file path or browser name for yt-dlp authentication.
+
+    Checks (in priority order):
+    1. Explicit custom arguments
+    2. Environment variables (YOUTUBE_COOKIES_FILE / COOKIES_FILE, YOUTUBE_COOKIES_BROWSER / COOKIES_FROM_BROWSER)
+    3. config.yaml settings (youtube.cookies_file, youtube.cookies_from_browser)
+    4. Auto-discovery of cookies.txt / youtube_cookies.txt in root or workspace directory
+    """
+    if cfg is None:
+        cfg = get_config()
+
+    cookie_file = (
+        custom_cookies_file
+        or os.environ.get("YOUTUBE_COOKIES_FILE")
+        or os.environ.get("COOKIES_FILE")
+        or cfg.get("youtube", {}).get("cookies_file")
+    )
+
+    if not cookie_file:
+        # Search candidate locations for cookies.txt
+        candidates = [
+            Path("cookies.txt"),
+            Path("youtube_cookies.txt"),
+            Path(__file__).parent.parent / "cookies.txt",
+            Path(__file__).parent.parent / "youtube_cookies.txt",
+        ]
+        if workspace_dir:
+            candidates.extend([
+                workspace_dir / "cookies.txt",
+                workspace_dir / "youtube_cookies.txt",
+                workspace_dir.parent / "cookies.txt",
+            ])
+        for c in candidates:
+            try:
+                if c.is_file() and c.stat().st_size > 0:
+                    cookie_file = str(c.resolve())
+                    logger.info("Auto-detected YouTube cookies file: %s", cookie_file)
+                    break
+            except Exception:
+                continue
+    else:
+        # Check if custom path exists
+        if not Path(cookie_file).is_file():
+            logger.warning("Configured cookies_file not found: %s", cookie_file)
+            cookie_file = None
+        else:
+            cookie_file = str(Path(cookie_file).resolve())
+
+    cookies_browser = (
+        custom_cookies_browser
+        or os.environ.get("YOUTUBE_COOKIES_BROWSER")
+        or os.environ.get("COOKIES_FROM_BROWSER")
+        or cfg.get("youtube", {}).get("cookies_from_browser")
+    )
+    if cookies_browser:
+        cookies_browser = str(cookies_browser).strip().lower()
+        if not cookies_browser:
+            cookies_browser = None
+
+    return cookie_file, cookies_browser
+
+
 def ingest_video(
     url_or_path: str,
     job_id: Optional[str] = None,
     workspace_dir: Optional[str | Path] = None,
     progress_callback: Optional[Any] = None,
+    cookies_file: Optional[str] = None,
+    cookies_browser: Optional[str] = None,
 ) -> IngestionResult:
     """Ingest a video from URL or local path.
 
     Downloads or copies video, extracts metadata including YouTube replay heatmap,
     and converts audio to 16kHz mono WAV. Reuses workspace cache if already downloaded.
+    Supports cookie files and browser cookies to bypass YouTube anti-bot challenges.
     """
     cfg = get_config()
     if not job_id:
@@ -245,32 +316,103 @@ def ingest_video(
         if progress_callback:
             base_ydl_opts["progress_hooks"] = [make_progress_hook(progress_callback)]
 
-        # Priority strategies: 'android' client bypasses YouTube SABR 403 throttling instantly
-        client_strategies = [
-            ["android"],
-            ["android", "web"],
-            None,
-        ]
+        # Configure YouTube cookies & client strategies
+        cookie_file, resolved_browser = get_youtube_cookies_options(
+            cfg=cfg,
+            workspace_dir=workspace_dir,
+            custom_cookies_file=cookies_file,
+            custom_cookies_browser=cookies_browser,
+        )
+
+        if cookie_file:
+            base_ydl_opts["cookiefile"] = cookie_file
+            logger.info("Using YouTube authentication cookies: %s", cookie_file)
+
+        # Configured or default client strategies
+        configured_strategies = cfg.get("youtube", {}).get("player_clients")
+        if configured_strategies and isinstance(configured_strategies, list):
+            client_strategies = configured_strategies
+        elif cookie_file or resolved_browser:
+            client_strategies = [
+                None,
+                ["web"],
+                ["android_vr"],
+                ["android_vr", "web"],
+                ["web_safari"],
+            ]
+        else:
+            client_strategies = [
+                ["android_vr"],
+                ["android_vr", "web"],
+                ["web_safari"],
+                ["ios"],
+                ["mweb"],
+                ["android"],
+                ["android", "web"],
+                None,
+            ]
+
+        # Determine browser cookie attempts
+        cookie_modes = []
+        if resolved_browser:
+            cookie_modes.append((True, resolved_browser))
+            cookie_modes.append((False, None))  # Graceful fallback without browser cookies if browser is locked
+        else:
+            cookie_modes.append((False, None))
 
         info = None
         last_error = None
 
-        for clients in client_strategies:
-            opts = dict(base_ydl_opts)
-            if clients:
-                opts["extractor_args"] = {"youtube": {"player_client": clients}}
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url_or_path, download=True)
-                    if info is not None:
-                        break
-            except Exception as e:
-                last_error = e
-                logger.warning("yt-dlp attempt with clients %s failed: %s", clients, e)
-                continue
+        for use_browser_cookies, browser_name in cookie_modes:
+            mode_ydl_opts = dict(base_ydl_opts)
+            if use_browser_cookies and browser_name:
+                mode_ydl_opts["cookiesfrombrowser"] = (browser_name,)
+                logger.info("Attempting download with cookies from browser: %s", browser_name)
+
+            for clients in client_strategies:
+                opts = dict(mode_ydl_opts)
+                if clients:
+                    opts["extractor_args"] = {"youtube": {"player_client": clients}}
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url_or_path, download=True)
+                        if info is not None:
+                            break
+                except Exception as e:
+                    last_error = e
+                    logger.warning("yt-dlp attempt with clients %s (browser=%s) failed: %s", clients, browser_name if use_browser_cookies else "none", e)
+                    continue
+
+            if info is not None:
+                break
 
         if info is None:
-            raise RuntimeError(f"Could not download video: {last_error or 'Unknown error'}")
+            err_str = str(last_error or "Unknown error")
+            is_bot_error = any(
+                phrase in err_str.lower()
+                for phrase in [
+                    "sign in to confirm you’re not a bot",
+                    "sign in to confirm you're not a bot",
+                    "confirm you're not a bot",
+                    "confirm you’re not a bot",
+                    "bot",
+                    "cookies-from-browser",
+                    "exporting-youtube-cookies",
+                ]
+            )
+            if is_bot_error:
+                help_msg = (
+                    "YouTube blocked this download with a bot verification challenge ('Sign in to confirm you’re not a bot').\n\n"
+                    "Quick fixes to authenticate Clipper Studio:\n"
+                    "1. [Recommended] Place a 'cookies.txt' file in the clipping app folder (or workspace folder). "
+                    "You can export cookies from your browser using the 'Get cookies.txt LOCALLY' extension.\n"
+                    "2. Or set your browser in config.yaml: set 'youtube.cookies_from_browser: chrome' (or 'firefox', 'brave', 'edge').\n"
+                    "3. Or download the video directly with your browser and paste its local file path (e.g. /path/to/video.mp4)."
+                )
+                logger.error("%s\nOriginal error: %s", help_msg, err_str)
+                raise RuntimeError(f"{help_msg}\n\nTechnical details: {err_str}")
+
+            raise RuntimeError(f"Could not download video: {err_str}")
 
         # Locate downloaded source video
         matched_videos = list(job_dir.glob("source.*"))

@@ -63,3 +63,20 @@ storage:
   workspace_dir: "./workspace"
   auto_cleanup_hours: 24     # Automatically remove jobs older than X hours (0 to disable)
 
+# YouTube & Media Download Settings
+youtube:
+  # Netscape format cookies.txt file path (auto-detected if cookies.txt is in root or workspace)
+  cookies_file: ""
+  # Browser to extract YouTube cookies from automatically ("chrome", "firefox", "brave", "edge", "safari")
+  cookies_from_browser: ""
+  # Fallback client strategies: android_vr bypasses SABR bot checks; other clients act as fallbacks
+  player_clients:
+    - ["android_vr"]
+    - ["android_vr", "web"]
+    - ["web_safari"]
+    - ["ios"]
+    - ["mweb"]
+    - ["android"]
+    - ["android", "web"]
+
+

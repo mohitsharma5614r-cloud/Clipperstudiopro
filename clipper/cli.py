@@ -26,6 +26,8 @@ def run_cli_pipeline(
     min_length: float = 20.0,
     max_length: float = 60.0,
     output_dir: str = "./output",
+    cookies_file: str | None = None,
+    cookies_browser: str | None = None,
 ):
     """Execute clipping pipeline via CLI with terminal progress updates."""
     print("=" * 65)
@@ -36,11 +38,19 @@ def run_cli_pipeline(
     print(f"• Aspect Ratio: {aspect_ratio}")
     print(f"• Length Range: {min_length}s - {max_length}s")
     print(f"• Output Dir:   {output_dir}")
+    if cookies_file:
+        print(f"• Cookies File: {cookies_file}")
+    if cookies_browser:
+        print(f"• Browser Auth: {cookies_browser}")
     print("-" * 65)
 
     # 1. Ingestion
     print("\n[1/4] 📥 Ingesting video & extracting metadata...")
-    ingestion = ingest_video(url_or_path)
+    ingestion = ingest_video(
+        url_or_path,
+        cookies_file=cookies_file,
+        cookies_browser=cookies_browser,
+    )
     meta = ingestion.metadata
     print(f"      ✓ Title:    {meta.title}")
     print(f"      ✓ Channel:  {meta.channel}")
@@ -119,6 +129,8 @@ def main():
     parser.add_argument("--min-len", type=float, default=20.0, help="Minimum clip duration in seconds (default: 20)")
     parser.add_argument("--max-len", type=float, default=60.0, help="Maximum clip duration in seconds (default: 60)")
     parser.add_argument("--output", default="./output", help="Output directory for clips (default: ./output)")
+    parser.add_argument("--cookies", "--cookies-file", dest="cookies_file", default=None, help="Path to Netscape cookies.txt file for YouTube authentication")
+    parser.add_argument("--cookies-from-browser", dest="cookies_browser", default=None, help="Browser to extract YouTube cookies from (e.g. chrome, firefox, brave, edge)")
     parser.add_argument("--serve", action="store_true", help="Start the FastAPI web server")
     parser.add_argument("--host", default="0.0.0.0", help="Web server host (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="Web server port (default: 8000)")
@@ -135,6 +147,8 @@ def main():
             min_length=args.min_len,
             max_length=args.max_len,
             output_dir=args.output,
+            cookies_file=args.cookies_file,
+            cookies_browser=args.cookies_browser,
         )
     else:
         parser.print_help()

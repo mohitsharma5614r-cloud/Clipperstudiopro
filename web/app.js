@@ -161,7 +161,14 @@ document.addEventListener('DOMContentLoaded', () => {
           setSubmittingState(false);
         } else if (job.status === 'failed') {
           clearInterval(pollInterval);
-          alert(`Pipeline processing failed: ${job.error || 'Unknown error'}`);
+          const err = job.error || 'Unknown error';
+          const isBot = /bot|sign in to confirm|cookies/i.test(err);
+          if (isBot) {
+            updateProgress(0, 'YouTube Bot Verification Required', 'Authentication cookies needed to download this video', 'failed');
+            openCookiesModal(err);
+          } else {
+            alert(`Pipeline processing failed: ${err}`);
+          }
           setSubmittingState(false);
         }
       } catch (e) {
@@ -387,4 +394,159 @@ document.addEventListener('DOMContentLoaded', () => {
     div.textContent = str || '';
     return div.innerHTML;
   }
+
+  // --- YouTube Authentication & Cookies Controller ---
+  const authCookiesBtn = document.getElementById('authCookiesBtn');
+  const authCookiesStatusText = document.getElementById('authCookiesStatusText');
+  const cookiesModal = document.getElementById('cookiesModal');
+  const closeCookiesModalBtn = document.getElementById('closeCookiesModalBtn');
+  const cookiesFileInput = document.getElementById('cookiesFileInput');
+  const cookiesDropzone = document.getElementById('cookiesDropzone');
+  const dropzoneText = document.getElementById('dropzoneText');
+  const cookiesTextInput = document.getElementById('cookiesTextInput');
+  const saveCookiesBtn = document.getElementById('saveCookiesBtn');
+  const cookiesSaveFeedback = document.getElementById('cookiesSaveFeedback');
+  const cookiesStatusDot = document.getElementById('cookiesStatusDot');
+  const cookiesStatusDetail = document.getElementById('cookiesStatusDetail');
+
+  async function checkCookiesStatus() {
+    try {
+      const res = await fetch('/cookies/status');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.has_cookies) {
+        if (authCookiesStatusText) authCookiesStatusText.textContent = 'Cookies: Active';
+        if (authCookiesBtn) {
+          authCookiesBtn.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+          authCookiesBtn.style.color = '#10b981';
+        }
+        if (cookiesStatusDot) cookiesStatusDot.style.background = '#10b981';
+        if (cookiesStatusDetail) cookiesStatusDetail.textContent = data.message;
+      } else {
+        if (authCookiesStatusText) authCookiesStatusText.textContent = 'Cookies: Setup';
+        if (authCookiesBtn) {
+          authCookiesBtn.style.borderColor = '';
+          authCookiesBtn.style.color = '';
+        }
+        if (cookiesStatusDot) cookiesStatusDot.style.background = 'var(--text-muted)';
+        if (cookiesStatusDetail) cookiesStatusDetail.textContent = 'No cookies loaded yet. Add cookies.txt to authenticate.';
+      }
+    } catch (e) {
+      console.warn('Could not check cookies status:', e);
+    }
+  }
+
+  function openCookiesModal(errorMsg = null) {
+    if (!cookiesModal) return;
+    cookiesModal.style.display = 'flex';
+    if (errorMsg) {
+      if (cookiesStatusDot) cookiesStatusDot.style.background = '#f59e0b';
+      if (cookiesStatusDetail) {
+        cookiesStatusDetail.innerHTML = '<span style="color:#f59e0b;font-weight:600;">⚠️ YouTube Bot Challenge Triggered:</span> Export and save your cookies below to proceed.';
+      }
+    } else {
+      checkCookiesStatus();
+    }
+  }
+
+  function closeCookiesModal() {
+    if (!cookiesModal) return;
+    cookiesModal.style.display = 'none';
+    if (cookiesSaveFeedback) cookiesSaveFeedback.textContent = '';
+  }
+
+  if (authCookiesBtn) {
+    authCookiesBtn.addEventListener('click', () => openCookiesModal());
+  }
+
+  if (closeCookiesModalBtn) {
+    closeCookiesModalBtn.addEventListener('click', closeCookiesModal);
+  }
+
+  if (cookiesModal) {
+    cookiesModal.addEventListener('click', (e) => {
+      if (e.target === cookiesModal) closeCookiesModal();
+    });
+  }
+
+  if (cookiesFileInput) {
+    cookiesFileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          cookiesTextInput.value = event.target.result;
+          if (dropzoneText) dropzoneText.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+
+  if (cookiesDropzone) {
+    cookiesDropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      cookiesDropzone.style.borderColor = 'var(--accent-blue)';
+    });
+    cookiesDropzone.addEventListener('dragleave', () => {
+      cookiesDropzone.style.borderColor = '';
+    });
+    cookiesDropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      cookiesDropzone.style.borderColor = '';
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        const file = files[0];
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          cookiesTextInput.value = event.target.result;
+          if (dropzoneText) dropzoneText.textContent = `Dropped: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+
+  if (saveCookiesBtn) {
+    saveCookiesBtn.addEventListener('click', async () => {
+      const content = cookiesTextInput.value.trim();
+      if (!content) {
+        cookiesSaveFeedback.textContent = 'Please enter or upload cookie contents.';
+        cookiesSaveFeedback.style.color = '#ef4444';
+        return;
+      }
+
+      saveCookiesBtn.disabled = true;
+      cookiesSaveFeedback.textContent = 'Saving...';
+      cookiesSaveFeedback.style.color = 'var(--text-muted)';
+
+      try {
+        const res = await fetch('/cookies/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || 'Failed to save cookies');
+        }
+
+        cookiesSaveFeedback.textContent = '✓ Saved successfully!';
+        cookiesSaveFeedback.style.color = '#10b981';
+        checkCookiesStatus();
+        setTimeout(() => {
+          closeCookiesModal();
+        }, 1200);
+      } catch (err) {
+        cookiesSaveFeedback.textContent = `Error: ${err.message}`;
+        cookiesSaveFeedback.style.color = '#ef4444';
+      } finally {
+        saveCookiesBtn.disabled = false;
+      }
+    });
+  }
+
+  // Initial check on page load
+  checkCookiesStatus();
 });

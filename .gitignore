@@ -22,9 +22,11 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Environment Variables
+# Environment Variables & Authentication
 .env
 !.env.example
+*cookies*.txt
+cookies.txt
 
 # OS Metadata
 .DS_Store

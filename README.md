@@ -138,9 +138,29 @@ CLI Parameters:
 - `--min-len`: Minimum clip duration in seconds (default: `20.0`).
 - `--max-len`: Maximum clip duration in seconds (default: `60.0`).
 - `--output`: Destination folder for rendered clips (default: `./output`).
+- `--cookies`: Path to a Netscape `cookies.txt` file for YouTube authentication.
+- `--cookies-from-browser`: Browser to extract cookies from (`chrome`, `firefox`, `brave`, `edge`).
 - `--serve`: Starts the Web UI server.
 
-### 3. Docker Deployment
+### 3. YouTube Authentication & Cookies (Bypassing Bot Verification)
+
+YouTube regularly enforces bot-detection challenges ("Sign in to confirm you're not a bot") on automated downloads. Clipper Studio provides three seamless solutions:
+
+1. **Auto-Detected `cookies.txt` (Recommended)**:
+   - Export your cookies while logged into YouTube using the free browser extension **Get cookies.txt LOCALLY** (available for Chrome, Brave, Firefox, Edge).
+   - Save the file as `cookies.txt` in the project root directory or workspace folder. Clipper Studio detects and uses it automatically!
+2. **Web UI Cookies Manager**:
+   - In the web app, click the **Cookies** button in the header.
+   - Drag & drop or paste your `cookies.txt` directly.
+3. **Browser Cookies in `config.yaml`**:
+   - Set `youtube.cookies_from_browser: "chrome"` (or `firefox`, `brave`, `edge`) in `config.yaml`.
+4. **Local Video Files**:
+   - You can also process local video files directly without downloading:
+     ```bash
+     python -m clipper "/path/to/my_video.mp4" --clips 5
+     ```
+
+### 4. Docker Deployment
 
 ```bash
 docker compose up --build
